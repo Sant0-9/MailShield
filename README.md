@@ -1,36 +1,103 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MailShield Lite
+
+> **Will your emails land in the Inbox?**
+
+A fast, simple web app that checks domain email authentication posture (SPF, DKIM, DMARC) and provides clear pass/warn/fail results with actionable recommendations.
+
+## Features
+
+- **Instant Domain Analysis**: Check any public domain's email authentication setup
+- **SPF, DKIM & DMARC Verification**: Comprehensive email security assessment
+- **Clear Grading System**: Simple A-F grades with detailed scoring
+- **Actionable Recommendations**: Specific "Fix:" guidance for each issue found
+- **Responsive Design**: Works seamlessly on desktop and mobile
+- **No Registration Required**: Just enter a domain and get results
+
+## How It Works
+
+1. Enter any domain (e.g., `example.com`)
+2. The app performs DNS lookups for:
+   - **SPF**: Sender Policy Framework records
+   - **DKIM**: DomainKeys Identified Mail selectors
+   - **DMARC**: Domain-based Message Authentication records
+3. Get instant results with scores, issues, and fixes
+
+## Tech Stack
+
+- **Frontend**: Next.js 15 + TypeScript + Tailwind CSS
+- **Backend**: Next.js API Routes with Node.js DNS lookups
+- **Deployment**: Optimized for Vercel serverless functions
+- **Caching**: 5-minute API response caching for performance
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
+# Clone and install dependencies
+npm install
+
+# Run development server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+
+# Open http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## API Usage
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+# Check a domain programmatically
+curl "http://localhost:3000/api/check?domain=github.com"
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Example response:
+```json
+{
+  "spf": {
+    "present": true,
+    "status": "pass",
+    "score": 90,
+    "issues": [],
+    "fix": "SPF record looks good"
+  },
+  "dkim": {
+    "present": true,
+    "status": "pass",
+    "score": 100,
+    "selectors": ["google", "s1", "s2"],
+    "issues": [],
+    "fix": "DKIM appears configured correctly"
+  },
+  "dmarc": {
+    "present": true,
+    "status": "pass",
+    "score": 100,
+    "policy": "reject",
+    "issues": [],
+    "fix": "DMARC policy is optimally configured"
+  },
+  "overallScore": 97,
+  "overallGrade": "A",
+  "domain": "github.com"
+}
+```
 
-## Learn More
+## Deployment
 
-To learn more about Next.js, take a look at the following resources:
+Deploy instantly to Vercel:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/yourusername/mailshield-lite)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The app is pre-configured for Vercel with:
+- Node.js serverless runtime for DNS lookups
+- Optimized caching headers
+- Mobile-responsive design
 
-## Deploy on Vercel
+## Who Benefits
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **IT Administrators**: Quickly verify email deliverability setup
+- **Marketing Teams**: Ensure campaigns reach the inbox
+- **Security Teams**: Audit email authentication policies
+- **Developers**: Reference implementation for email auth checking
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## License
+
+MIT License - feel free to use and modify for your needs.
