@@ -42,14 +42,35 @@ export default function Home() {
   const [searchHistory, setSearchHistory] = useState<string[]>([])
   const [showHistory, setShowHistory] = useState(false)
   const [loadingStep, setLoadingStep] = useState<string>('')
+  const [comparisonMode, setComparisonMode] = useState(false)
+  const [comparisonResults, setComparisonResults] = useState<EmailAuthResult[]>([])
+  const [darkMode, setDarkMode] = useState(false)
 
-  // Load search history from localStorage on mount
+  // Load search history and theme from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem('mailshield-history')
     if (saved) {
       setSearchHistory(JSON.parse(saved))
     }
+
+    const theme = localStorage.getItem('mailshield-theme')
+    if (theme === 'dark') {
+      setDarkMode(true)
+      document.documentElement.classList.add('dark')
+    }
   }, [])
+
+  // Toggle dark mode
+  const toggleDarkMode = () => {
+    setDarkMode(!darkMode)
+    if (!darkMode) {
+      document.documentElement.classList.add('dark')
+      localStorage.setItem('mailshield-theme', 'dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+      localStorage.setItem('mailshield-theme', 'light')
+    }
+  }
 
   // Validate domain in real-time
   const validateDomain = useCallback((inputDomain: string): boolean => {
@@ -86,7 +107,9 @@ export default function Home() {
     const cleanDomain = domain.trim()
     setLoading(true)
     setError('')
-    setResult(null)
+    if (!comparisonMode) {
+      setResult(null)
+    }
     setShowHistory(false)
     setLoadingStep('Validating domain...')
 
@@ -107,13 +130,56 @@ export default function Home() {
         throw new Error(data.error || 'Failed to check domain')
       }
 
-      setResult(data)
+      if (comparisonMode) {
+        // Add to comparison results
+        const existingIndex = comparisonResults.findIndex(r => r.domain === cleanDomain)
+        if (existingIndex >= 0) {
+          const newResults = [...comparisonResults]
+          newResults[existingIndex] = data
+          setComparisonResults(newResults)
+        } else {
+          setComparisonResults([...comparisonResults, data])
+        }
+      } else {
+        setResult(data)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred')
     } finally {
       setLoading(false)
       setLoadingStep('')
     }
+  }
+
+  // Clear comparison results
+  const clearComparison = () => {
+    setComparisonResults([])
+    setComparisonMode(false)
+    setResult(null)
+  }
+
+  // Export functionality
+  const exportResults = () => {
+    const data = comparisonMode ? comparisonResults : (result ? [result] : [])
+    const exportData = data.map(r => ({
+      domain: r.domain,
+      overallGrade: r.overallGrade,
+      overallScore: r.overallScore,
+      spf: { score: r.spf.score, status: r.spf.status },
+      dkim: { score: r.dkim.score, status: r.dkim.status, selectors: r.dkim.selectors },
+      dmarc: { score: r.dmarc.score, status: r.dmarc.status, policy: r.dmarc.policy },
+      timestamp: r.timestamp
+    }))
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `mailshield-report-${new Date().toISOString().split('T')[0]}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
   }
 
   // Copy to clipboard functionality
@@ -204,25 +270,128 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 py-8 px-4 sm:px-6 lg:px-8">
+    <div className={`min-h-screen transition-colors duration-300 py-8 px-4 sm:px-6 lg:px-8 ${
+      darkMode
+        ? 'bg-gradient-to-br from-gray-900 via-gray-800 to-blue-900'
+        : 'bg-gradient-to-br from-blue-50 via-white to-indigo-50'
+    }`}>
       <div className="max-w-4xl mx-auto">
+        {/* Header with controls */}
+        <div className="flex justify-end mb-6 gap-4">
+          {/* Dark Mode Toggle */}
+          <button
+            onClick={toggleDarkMode}
+            className={`p-3 rounded-xl transition-all duration-200 ${
+              darkMode
+                ? 'bg-gray-700 text-yellow-400 hover:bg-gray-600'
+                : 'bg-white/80 text-gray-600 hover:bg-white hover:text-yellow-500'
+            } shadow-lg backdrop-blur-sm border border-white/20`}
+            title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {darkMode ? (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+              </svg>
+            )}
+          </button>
+
+          {/* Comparison Mode Toggle */}
+          <button
+            onClick={() => setComparisonMode(!comparisonMode)}
+            className={`flex items-center gap-2 px-4 py-3 rounded-xl transition-all duration-200 font-medium ${
+              comparisonMode
+                ? 'bg-blue-600 text-white shadow-lg'
+                : darkMode
+                  ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  : 'bg-white/80 text-gray-600 hover:bg-white'
+            } shadow-lg backdrop-blur-sm border border-white/20`}
+            title="Toggle comparison mode"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            Compare
+          </button>
+
+          {/* Export Button */}
+          {((result && !comparisonMode) || (comparisonMode && comparisonResults.length > 0)) && (
+            <button
+              onClick={exportResults}
+              className={`flex items-center gap-2 px-4 py-3 rounded-xl transition-all duration-200 font-medium ${
+                darkMode
+                  ? 'bg-green-600 text-white hover:bg-green-700'
+                  : 'bg-green-600 text-white hover:bg-green-700'
+              } shadow-lg`}
+              title="Export results as JSON"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Export
+            </button>
+          )}
+
+          {/* Clear Comparison */}
+          {comparisonMode && comparisonResults.length > 0 && (
+            <button
+              onClick={clearComparison}
+              className={`flex items-center gap-2 px-4 py-3 rounded-xl transition-all duration-200 font-medium ${
+                darkMode
+                  ? 'bg-red-600 text-white hover:bg-red-700'
+                  : 'bg-red-600 text-white hover:bg-red-700'
+              } shadow-lg`}
+              title="Clear comparison"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              Clear
+            </button>
+          )}
+        </div>
+
         <div className="text-center mb-12">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl mb-6 shadow-lg">
+          <div className={`inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl mb-6 shadow-lg`}>
             <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
           </div>
-          <h1 className="text-5xl font-bold bg-gradient-to-r from-gray-900 via-blue-900 to-indigo-900 bg-clip-text text-transparent mb-4">
+          <h1 className={`text-5xl font-bold mb-4 ${
+            darkMode
+              ? 'bg-gradient-to-r from-white via-blue-200 to-indigo-200 bg-clip-text text-transparent'
+              : 'bg-gradient-to-r from-gray-900 via-blue-900 to-indigo-900 bg-clip-text text-transparent'
+          }`}>
             MailShield Lite
           </h1>
-          <p className="text-2xl text-gray-700 font-medium">Will your emails land in the Inbox?</p>
-          <p className="text-lg text-gray-600 mt-2">Check your domain&apos;s email authentication in seconds</p>
+          <p className={`text-2xl font-medium ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+            Will your emails land in the Inbox?
+          </p>
+          <p className={`text-lg mt-2 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+            Check your domain&apos;s email authentication in seconds
+          </p>
+          {comparisonMode && (
+            <div className={`mt-4 px-4 py-2 rounded-lg ${
+              darkMode ? 'bg-blue-900/50 text-blue-200' : 'bg-blue-50 text-blue-700'
+            } inline-block`}>
+              <span className="font-medium">Comparison Mode Active</span> - Check multiple domains to compare
+            </div>
+          )}
         </div>
 
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl border border-white/20 p-8 mb-8">
+        <div className={`backdrop-blur-sm rounded-2xl shadow-xl border p-8 mb-8 ${
+          darkMode
+            ? 'bg-gray-800/80 border-gray-700/20'
+            : 'bg-white/80 border-white/20'
+        }`}>
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1 relative">
-              <label htmlFor="domain" className="block text-sm font-semibold text-gray-700 mb-2">
+              <label htmlFor="domain" className={`block text-sm font-semibold mb-2 ${
+                darkMode ? 'text-gray-300' : 'text-gray-700'
+              }`}>
                 Enter Domain
                 {domainValid === false && (
                   <span className="text-red-500 ml-2 text-xs">Invalid domain format</span>
@@ -240,10 +409,14 @@ export default function Home() {
                   onChange={(e) => handleDomainChange(e.target.value)}
                   onFocus={() => setShowHistory(searchHistory.length > 0)}
                   onBlur={() => setTimeout(() => setShowHistory(false), 200)}
-                  className={`w-full px-5 py-4 pr-12 border-2 rounded-xl focus:ring-4 focus:ring-blue-500/20 transition-all duration-200 text-lg font-medium text-gray-900 placeholder-gray-400 bg-white ${
+                  className={`w-full px-5 py-4 pr-12 border-2 rounded-xl focus:ring-4 focus:ring-blue-500/20 transition-all duration-200 text-lg font-medium ${
+                    darkMode
+                      ? 'text-white placeholder-gray-500 bg-gray-700/50'
+                      : 'text-gray-900 placeholder-gray-400 bg-white'
+                  } ${
                     domainValid === false ? 'border-red-300 focus:border-red-500' :
                     domainValid === true ? 'border-green-300 focus:border-green-500' :
-                    'border-gray-200 focus:border-blue-500'
+                    darkMode ? 'border-gray-600 focus:border-blue-500' : 'border-gray-200 focus:border-blue-500'
                   }`}
                   onKeyPress={(e) => e.key === 'Enter' && checkEmailAuth()}
                   disabled={loading}
