@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
 interface EmailAuthResult {
   spf: {
@@ -38,16 +38,69 @@ export default function Home() {
   const [result, setResult] = useState<EmailAuthResult | null>(null)
   const [error, setError] = useState('')
   const [showHelp, setShowHelp] = useState(false)
+  const [domainValid, setDomainValid] = useState<boolean | null>(null)
+  const [searchHistory, setSearchHistory] = useState<string[]>([])
+  const [showHistory, setShowHistory] = useState(false)
+  const [loadingStep, setLoadingStep] = useState<string>('')
+
+  // Load search history from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('mailshield-history')
+    if (saved) {
+      setSearchHistory(JSON.parse(saved))
+    }
+  }, [])
+
+  // Validate domain in real-time
+  const validateDomain = useCallback((inputDomain: string): boolean => {
+    if (!inputDomain) return false
+
+    // Remove protocol if present
+    const cleanDomain = inputDomain.replace(/^https?:\/\//, '').split('/')[0]
+
+    // Basic domain validation
+    const domainRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]*\.([a-zA-Z]{2,}|[a-zA-Z]{2,}\.[a-zA-Z]{2,})$/
+    return domainRegex.test(cleanDomain) && cleanDomain.length <= 253
+  }, [])
+
+  // Handle domain input change with validation
+  const handleDomainChange = (value: string) => {
+    setDomain(value)
+    if (value.trim()) {
+      setDomainValid(validateDomain(value.trim()))
+    } else {
+      setDomainValid(null)
+    }
+  }
+
+  // Save to search history
+  const saveToHistory = (searchDomain: string) => {
+    const newHistory = [searchDomain, ...searchHistory.filter(d => d !== searchDomain)].slice(0, 10)
+    setSearchHistory(newHistory)
+    localStorage.setItem('mailshield-history', JSON.stringify(newHistory))
+  }
 
   const checkEmailAuth = async () => {
-    if (!domain) return
+    if (!domain || !domainValid) return
 
+    const cleanDomain = domain.trim()
     setLoading(true)
     setError('')
     setResult(null)
+    setShowHistory(false)
+    setLoadingStep('Validating domain...')
 
     try {
-      const response = await fetch(`/api/check?domain=${encodeURIComponent(domain)}`)
+      // Save to history before checking
+      saveToHistory(cleanDomain)
+
+      // Simulate progressive loading steps
+      setTimeout(() => setLoadingStep('Looking up SPF records...'), 500)
+      setTimeout(() => setLoadingStep('Checking DKIM selectors...'), 1500)
+      setTimeout(() => setLoadingStep('Analyzing DMARC policy...'), 2500)
+      setTimeout(() => setLoadingStep('Calculating security score...'), 3500)
+
+      const response = await fetch(`/api/check?domain=${encodeURIComponent(cleanDomain)}`)
       const data = await response.json()
 
       if (!response.ok) {
@@ -59,7 +112,56 @@ export default function Home() {
       setError(err instanceof Error ? err.message : 'An error occurred')
     } finally {
       setLoading(false)
+      setLoadingStep('')
     }
+  }
+
+  // Copy to clipboard functionality
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      // Could add a toast notification here
+    } catch {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea')
+      textArea.value = text
+      document.body.appendChild(textArea)
+      textArea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textArea)
+    }
+  }
+
+  // Animated Progress Bar Component
+  const ProgressBar = ({ score, className = "" }: { score: number; className?: string }) => {
+    const [animatedScore, setAnimatedScore] = useState(0)
+
+    useEffect(() => {
+      const timer = setTimeout(() => {
+        setAnimatedScore(score)
+      }, 300)
+      return () => clearTimeout(timer)
+    }, [score])
+
+    const getProgressColor = (value: number) => {
+      if (value >= 80) return 'from-green-500 to-emerald-500'
+      if (value >= 60) return 'from-yellow-500 to-amber-500'
+      return 'from-red-500 to-rose-500'
+    }
+
+    return (
+      <div className={`relative ${className}`}>
+        <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+          <div
+            className={`h-full bg-gradient-to-r ${getProgressColor(score)} rounded-full transition-all duration-1000 ease-out`}
+            style={{ width: `${animatedScore}%` }}
+          />
+        </div>
+        <div className="absolute right-0 top-4 text-sm font-bold text-gray-700">
+          {score}/100
+        </div>
+      </div>
+    )
   }
 
   const getStatusColor = (status: string) => {
@@ -119,24 +221,85 @@ export default function Home() {
 
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl border border-white/20 p-8 mb-8">
           <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1">
-              <label htmlFor="domain" className="block text-sm font-semibold text-gray-700 mb-2">Enter Domain</label>
-              <input
-                id="domain"
-                type="text"
-                placeholder="example.com"
-                value={domain}
-                onChange={(e) => setDomain(e.target.value)}
-                className="w-full px-5 py-4 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 text-lg font-medium text-gray-900 placeholder-gray-400 bg-white"
-                onKeyPress={(e) => e.key === 'Enter' && checkEmailAuth()}
-                disabled={loading}
-              />
+            <div className="flex-1 relative">
+              <label htmlFor="domain" className="block text-sm font-semibold text-gray-700 mb-2">
+                Enter Domain
+                {domainValid === false && (
+                  <span className="text-red-500 ml-2 text-xs">Invalid domain format</span>
+                )}
+                {domainValid === true && (
+                  <span className="text-green-500 ml-2 text-xs">Valid domain</span>
+                )}
+              </label>
+              <div className="relative">
+                <input
+                  id="domain"
+                  type="text"
+                  placeholder="example.com"
+                  value={domain}
+                  onChange={(e) => handleDomainChange(e.target.value)}
+                  onFocus={() => setShowHistory(searchHistory.length > 0)}
+                  onBlur={() => setTimeout(() => setShowHistory(false), 200)}
+                  className={`w-full px-5 py-4 pr-12 border-2 rounded-xl focus:ring-4 focus:ring-blue-500/20 transition-all duration-200 text-lg font-medium text-gray-900 placeholder-gray-400 bg-white ${
+                    domainValid === false ? 'border-red-300 focus:border-red-500' :
+                    domainValid === true ? 'border-green-300 focus:border-green-500' :
+                    'border-gray-200 focus:border-blue-500'
+                  }`}
+                  onKeyPress={(e) => e.key === 'Enter' && checkEmailAuth()}
+                  disabled={loading}
+                />
+
+                {/* Validation Icon */}
+                <div className="absolute right-4 top-1/2 transform -translate-y-1/2">
+                  {domainValid === true && (
+                    <svg className="w-6 h-6 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  )}
+                  {domainValid === false && (
+                    <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  )}
+                </div>
+              </div>
+
+              {/* Search History Dropdown */}
+              {showHistory && searchHistory.length > 0 && (
+                <div className="absolute z-10 w-full mt-2 bg-white border-2 border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                  <div className="p-2">
+                    <div className="text-xs font-semibold text-gray-500 mb-2 px-2">Recent searches</div>
+                    {searchHistory.map((historyDomain, index) => (
+                      <button
+                        key={index}
+                        onClick={() => {
+                          setDomain(historyDomain)
+                          setDomainValid(validateDomain(historyDomain))
+                          setShowHistory(false)
+                        }}
+                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-blue-50 transition-colors text-sm text-gray-700 hover:text-blue-600"
+                      >
+                        <div className="flex items-center gap-2">
+                          <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          {historyDomain}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-3 relative">
               <button
                 onClick={checkEmailAuth}
-                disabled={loading || !domain}
-                className="px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed font-semibold text-lg shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-[1.02]"
+                disabled={loading || !domain || domainValid === false}
+                className={`px-8 py-4 text-white rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-[1.02] ${
+                  loading || !domain || domainValid === false
+                    ? 'bg-gradient-to-r from-gray-400 to-gray-500 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700'
+                }`}
               >
                 {loading ? (
                   <div className="flex items-center gap-2">
@@ -148,6 +311,7 @@ export default function Home() {
                   </div>
                 ) : 'Check Email Auth'}
               </button>
+
               <button
                 onClick={() => setShowHelp(true)}
                 className="px-4 py-4 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-xl border-2 border-gray-200 hover:border-blue-300 transition-all duration-200 font-semibold"
@@ -159,6 +323,19 @@ export default function Home() {
               </button>
             </div>
           </div>
+
+          {/* Loading step indicator */}
+          {loading && loadingStep && (
+            <div className="text-center mt-4">
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50/80 backdrop-blur-sm text-blue-700 rounded-lg text-sm font-medium border border-blue-200">
+                <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 818-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                {loadingStep}
+              </div>
+            </div>
+          )}
         </div>
 
         {error && (
@@ -188,7 +365,18 @@ export default function Home() {
             <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl border border-white/20 p-8">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div>
-                  <h2 className="text-3xl font-bold text-gray-900 mb-2">Email Authentication Report</h2>
+                  <div className="flex items-center gap-3 mb-2">
+                    <h2 className="text-3xl font-bold text-gray-900">Email Authentication Report</h2>
+                    <button
+                      onClick={() => copyToClipboard(`MailShield Report for ${result.domain}: Overall Grade ${result.overallGrade} (${result.overallScore}/100)\nSPF: ${result.spf.score}/100\nDKIM: ${result.dkim.score}/100\nDMARC: ${result.dmarc.score}/100`)}
+                      className="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded hover:bg-gray-100"
+                      title="Copy full report summary"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    </button>
+                  </div>
                   <div className="space-y-1">
                     <p className="text-lg text-gray-700 font-medium">Domain: <span className="text-blue-600 font-semibold">{result.domain}</span></p>
                     <p className="text-gray-600">Checked: {new Date(result.timestamp).toLocaleString()}</p>
@@ -285,9 +473,20 @@ export default function Home() {
                         )}
                       </div>
                     )}
-                    <div className="flex justify-between items-center pt-2 border-t border-gray-200">
-                      <span className="font-medium">Score:</span>
-                      <span className="text-2xl font-bold text-gray-900">{data.score}<span className="text-sm text-gray-500">/100</span></span>
+                    <div className="pt-4 border-t border-gray-200">
+                      <div className="flex justify-between items-center mb-3">
+                        <span className="font-medium text-gray-700">Score</span>
+                        <button
+                          onClick={() => copyToClipboard(`${name}: ${data.score}/100`)}
+                          className="text-gray-400 hover:text-gray-600 transition-colors"
+                          title="Copy score"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                        </button>
+                      </div>
+                      <ProgressBar score={data.score} />
                     </div>
                   </div>
 
