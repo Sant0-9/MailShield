@@ -1,7 +1,1 @@
-{
-  "functions": {
-    "src/app/api/check/route.ts": {
-      "runtime": "nodejs"
-    }
-  }
-}
+{}
